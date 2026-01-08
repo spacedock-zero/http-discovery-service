@@ -8,6 +8,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   BIN_NAME: http-discovery-service
+  CERT_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+  CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
 jobs:
   build-and-release:
@@ -28,10 +30,12 @@ jobs:
 
       - name: Sign Binary
         shell: powershell
-        if: secrets.WINDOWS_CERTIFICATE_BASE64 != ''
-        env:
-          CERT_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        if: env.CERT_BASE64 != ''
+        # We don't need env here anymore since it's at job level, 
+        # but the run script uses process env vars which are automatically populated from job env.
+        # However, secrets mapped to env at job level might be masked? Yes.
+        # But we need to use them in the run block via $env:CERT_BASE64.
+        # Since they are in 'env' at job level, they are available as environment variables.
         run: |
           # Decode the certificate
           $pfxPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath "cert.pfx"
