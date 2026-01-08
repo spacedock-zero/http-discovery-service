@@ -21,8 +21,6 @@ fn get_install_path() -> anyhow::Result<PathBuf> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        // On Linux/Mac we'd use /usr/local/bin or similar, but for now just use current exe
-        // effectively disabling copy feature there unless we implement logic.
         Ok(std::env::current_exe()?)
     }
 }
@@ -37,20 +35,11 @@ pub fn install_service() -> anyhow::Result<()> {
     let target_path = match get_install_path() {
         Ok(p) => {
             if p != current_exe {
-                // If the target exists and is identical, we might skip, but better overwrite for updates.
-                // However, if the service wraps THIS file, we can't overwrite it while running.
-                // But we are running 'install', and the service (if running) holds the lock on the OLD file.
-                // So if we are upgrading, we first need to ensure the other process is killed or service stopped.
-                // But normally 'install' assumes clean slate or we should have stopped it?
-                // Actually, Windows locks running executables. So if we overwrite `target_path`, and `target_path` is running,
-                // we'll get access denied HERE.
-                // WE MUST STOP THE SERVICE FIRST if running.
-
                 let _ = manager.stop(ServiceStopCtx {
                     label: label.clone(),
                 });
 
-                // Give a moment for lock release?
+                // Give a moment for lock release
                 std::thread::sleep(std::time::Duration::from_millis(500));
 
                 match std::fs::copy(&current_exe, &p) {
@@ -204,7 +193,6 @@ pub fn uninstall_service() -> anyhow::Result<()> {
 
     uninstall_result.map_err(anyhow::Error::new)?;
 
-    // Also try to remove the copied binary if it exists
     #[cfg(target_os = "windows")]
     if let Ok(path) = get_install_path() {
         let _ = std::fs::remove_file(path);
