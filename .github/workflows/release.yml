@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: http-discovery-service
+
+jobs:
+  build-and-release:
+    name: Build and Release (Windows)
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Release
+        run: cargo build --release --verbose
+
+      - name: Sign Binary
+        shell: powershell
+        if: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' }}
+        env:
+          CERT_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Decode the certificate
+          $pfxPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath "cert.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_BASE64))
+          
+          # Sign the binary
+          # /fd sha256: Best practice algorithm
+          # /t ...: Timestamp server
+          $signtoolStr = '"C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\signtool.exe"'
+          if (-not (Test-Path $signtoolStr)) {
+              # Fallback to finding signtool in path if specific version not found, 
+              # but windows-latest usually has it.
+              $signtoolStr = "signtool"
+          }
+          
+          # We use a pattern to find standard signtool if path changes
+          $signtool = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.Windows10SDK.17763 -find "**\signtool.exe"
+          if (-not $signtool) { $signtool = "signtool" }
+          else { $signtool = $signtool[0] }
+
+          Write-Host "Using Signtool: $signtool"
+
+          & $signtool sign /f $pfxPath /p $env:CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 "target/release/$env:BIN_NAME.exe"
+
+      - name: Package Release Asset
+        shell: powershell
+        run: |
+          mkdir release
+          copy "target/release/$env:BIN_NAME.exe" "release/"
+          Compress-Archive -Path "release/*" -DestinationPath "$env:BIN_NAME-windows-x86_64.zip"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            http-discovery-service-windows-x86_64.zip
+            target/release/http-discovery-service.exe
+          generate_release_notes: true
